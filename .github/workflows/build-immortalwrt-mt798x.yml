@@ -95,34 +95,32 @@ jobs:
     - name: 更新 & 安装 feeds & 执行脚本
       run: |
         cd openwrt
-        # 1. 强制 HTTPS 转换（保留，这是大前提）
+        # 1. 协议强制转换（保持，防止其他包走 git://）
         git config --global url."https://github.com/".insteadOf "git://github.com/"
         git config --global url."https://github.com/".insteadOf "git@github.com:"
 
-        # 2. 把 Passwall 源直接写入 feeds.conf，让系统用官方机制去下载，而不是手动 clone
-        # 这样系统会自动处理依赖和认证补丁
-        sed -i '$a src-git passwall https://github.com/xiaorouji/openwrt-passwall' feeds.conf.default
-        sed -i '$a src-git passwall_packages https://github.com/xiaorouji/openwrt-passwall-packages' feeds.conf.default
+        # 2. 精简源配置：删掉单独的 passwall，只留全家桶和 istore
+        # 因为 smpackage 已经集成了 passwall，不需要单独克隆
         sed -i '$a src-git smpackage https://github.com/kenzok8/small-package' feeds.conf.default
         sed -i '$a src-git istore https://github.com/linkease/istore;main' feeds.conf.default
         
-        # 3. 更新并安装（增加重试）
+        # 3. 更新 feeds
         ./scripts/feeds update -a || ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-        # 4. 清理冲突（精简版）
+        # 4. 彻底处理包冲突（smpackage 经常和自带包冲突，必须删掉重复的）
         rm -rf feeds/smpackage/{base-files,dnsmasq,firewall*,fullconenat,libnftnl,nftables,ppp,opkg,ucl,upx,vsftpd-alt,miniupnpd-iptables,wireless-regdb}
         
-        # 5. 特殊包处理：Golang 还是用你之前的办法，但加上 --depth 1
+        # 5. Golang 依然手动浅克隆（保证版本足够新）
         rm -rf feeds/packages/lang/golang
         git clone --depth 1 https://github.com/kenzok8/golang feeds/packages/lang/golang
 
-        # 6. 核心修改：不再手动 git clone passwall，因为它已经在上面的 feeds 里了
-        # 我们只需要执行 install 即可
-        ./scripts/feeds install -p passwall -a
-        ./scripts/feeds install -p passwall_packages -a
+        # 6. 特别注意：移除源码中可能残留的 passwall 软连接，防止干扰 smpackage
+        rm -rf feeds/luci/applications/luci-app-passwall
+        rm -rf feeds/packages/net/xray-core
+        rm -rf package/luci-app-passwall
 
-        # 7. 强制安装并执行 DIY 脚本
+        # 7. 强制安装所有 feeds
         ./scripts/feeds install -a -f
         chmod +x $GITHUB_WORKSPACE/$DIY_SH && $GITHUB_WORKSPACE/$DIY_SH
 
